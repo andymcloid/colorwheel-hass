@@ -34,7 +34,7 @@ format: auto
 - Interactive color wheel for intuitive color selection
 - Supports multiple color formats (hex, RGB, array)
 - Auto-detects the format of your entity's color value
-- Updates entity values directly from the UI
+- Updates entity values automatically when you select a color
 - Works with input_text and other entity types that can store text values
 
 ## Options
@@ -59,5 +59,4 @@ format: auto
 1. Add the card to your dashboard
 2. Select an entity that can store text values (like input_text)
 3. Choose the color format you want to use
-4. Use the color wheel to select colors
-5. Click "Update Entity" to save the selected color to your entity
+4. Use the color wheel to select colors - the entity will update automatically when you release the mouse or lift your finger

@@ -6,6 +6,14 @@ export class ColorWheelCard extends HTMLElement {
         this._entityId = null;
         this._wheelRadius = 150;
         this._isDragging = false;
+        
+        // Bind event handlers once to prevent memory leaks
+        this._boundOnMouseDown = this._onMouseDown.bind(this);
+        this._boundOnMouseMove = this._onMouseMove.bind(this);
+        this._boundOnMouseUp = this._onMouseUp.bind(this);
+        this._boundOnTouchStart = this._onTouchStart.bind(this);
+        this._boundOnTouchMove = this._onTouchMove.bind(this);
+        this._boundOnTouchEnd = this._onTouchEnd.bind(this);
     }
 
     set hass(hass) {
@@ -74,6 +82,19 @@ export class ColorWheelCard extends HTMLElement {
         // Convert RGB to HSV for the color wheel
         const hsv = this._rgbToHsv(r, g, b);
         
+        // For the initial position, we need to convert back from the angle adjustment
+        // that we use in _updateColorFromEvent
+        // First, subtract the 90° rotation
+        let displayAngle = (hsv.h - 90) % 360;
+        if (displayAngle < 0) displayAngle += 360;
+        
+        // Then invert the angle
+        displayAngle = (360 - displayAngle) % 360;
+        
+        // Calculate selector position
+        const selectorX = this._wheelRadius + Math.cos(displayAngle * Math.PI / 180) * hsv.s * this._wheelRadius * 0.95;
+        const selectorY = this._wheelRadius - Math.sin(displayAngle * Math.PI / 180) * hsv.s * this._wheelRadius * 0.95;
+        
         this.content.innerHTML = `
             <style>
                 .color-wheel-container {
@@ -82,16 +103,41 @@ export class ColorWheelCard extends HTMLElement {
                     align-items: center;
                     margin-bottom: 16px;
                 }
+                .wheel-wrapper {
+                    position: relative;
+                    width: ${this._wheelRadius * 2 + 30}px;
+                    height: ${this._wheelRadius * 2 + 30}px;
+                    display: flex;
+                    justify-content: center;
+                    align-items: center;
+                    margin: 20px 0;
+                }
+                .outer-circle {
+                    position: absolute;
+                    width: ${this._wheelRadius * 2 + 30}px;
+                    height: ${this._wheelRadius * 2 + 30}px;
+                    border-radius: 50%;
+                    background-color: ${color};
+                    z-index: 1;
+                }
                 .color-wheel {
                     position: relative;
                     width: ${this._wheelRadius * 2}px;
                     height: ${this._wheelRadius * 2}px;
                     border-radius: 50%;
-                    margin: 20px 0;
                     cursor: pointer;
                     background: conic-gradient(
-                        red, yellow, lime, cyan, blue, magenta, red
+                        hsl(0, 100%, 50%),   /* Red */
+                        hsl(60, 100%, 50%),  /* Yellow */
+                        hsl(120, 100%, 50%), /* Green */
+                        hsl(180, 100%, 50%), /* Cyan */
+                        hsl(240, 100%, 50%), /* Blue */
+                        hsl(300, 100%, 50%), /* Magenta */
+                        hsl(360, 100%, 50%)  /* Red again */
                     );
+                    border: 5px solid white;
+                    box-sizing: border-box;
+                    z-index: 2;
                 }
                 .color-wheel::after {
                     content: '';
@@ -99,8 +145,8 @@ export class ColorWheelCard extends HTMLElement {
                     top: 50%;
                     left: 50%;
                     transform: translate(-50%, -50%);
-                    width: 20%;
-                    height: 20%;
+                    width: 5%;
+                    height: 5%;
                     border-radius: 50%;
                     background: white;
                     box-shadow: 0 0 5px rgba(0, 0, 0, 0.3);
@@ -115,14 +161,9 @@ export class ColorWheelCard extends HTMLElement {
                     transform: translate(-50%, -50%);
                     pointer-events: none;
                     background-color: ${color};
-                }
-                .color-display {
-                    width: 100%;
-                    height: 60px;
-                    border-radius: 8px;
-                    margin-bottom: 10px;
-                    background-color: ${color};
-                    box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
+                    z-index: 3;
+                    left: ${selectorX}px;
+                    top: ${selectorY}px;
                 }
                 .color-value {
                     font-family: var(--paper-font-body1_-_font-family);
@@ -130,33 +171,21 @@ export class ColorWheelCard extends HTMLElement {
                     text-align: center;
                     font-size: 14px;
                     color: var(--primary-text-color);
+                    margin-top: 10px;
                 }
                 .color-error {
                     color: var(--error-color);
                     padding: 8px;
                 }
-                .update-button {
-                    background-color: var(--primary-color);
-                    color: var(--text-primary-color);
-                    border: none;
-                    border-radius: 4px;
-                    padding: 8px 16px;
-                    font-size: 14px;
-                    cursor: pointer;
-                    margin-top: 10px;
-                    transition: background-color 0.3s;
-                }
-                .update-button:hover {
-                    background-color: var(--dark-primary-color);
-                }
             </style>
             <div class="color-wheel-container">
-                <div class="color-wheel" id="colorWheel">
-                    <div class="color-selector" id="colorSelector" style="left: ${this._wheelRadius + Math.cos(hsv.h * Math.PI / 180) * hsv.s * this._wheelRadius * 0.8}px; top: ${this._wheelRadius - Math.sin(hsv.h * Math.PI / 180) * hsv.s * this._wheelRadius * 0.8}px;"></div>
+                <div class="wheel-wrapper">
+                    <div class="outer-circle"></div>
+                    <div class="color-wheel" id="colorWheel">
+                        <div class="color-selector" id="colorSelector"></div>
+                    </div>
                 </div>
-                <div class="color-display"></div>
                 <div class="color-value">${entityState}</div>
-                <button class="update-button" id="updateButton">Update Entity</button>
             </div>
         `;
 
@@ -166,20 +195,33 @@ export class ColorWheelCard extends HTMLElement {
 
     _addEventListeners() {
         const colorWheel = this.content.querySelector('#colorWheel');
-        const updateButton = this.content.querySelector('#updateButton');
+        if (!colorWheel) return;
+        
+        // Remove any existing listeners first
+        this._removeEventListeners();
         
         // Color wheel events
-        colorWheel.addEventListener('mousedown', this._onMouseDown.bind(this));
-        document.addEventListener('mousemove', this._onMouseMove.bind(this));
-        document.addEventListener('mouseup', this._onMouseUp.bind(this));
+        colorWheel.addEventListener('mousedown', this._boundOnMouseDown);
+        document.addEventListener('mousemove', this._boundOnMouseMove);
+        document.addEventListener('mouseup', this._boundOnMouseUp);
         
         // Touch events for mobile
-        colorWheel.addEventListener('touchstart', this._onTouchStart.bind(this), { passive: false });
-        document.addEventListener('touchmove', this._onTouchMove.bind(this), { passive: false });
-        document.addEventListener('touchend', this._onTouchEnd.bind(this));
+        colorWheel.addEventListener('touchstart', this._boundOnTouchStart, { passive: false });
+        document.addEventListener('touchmove', this._boundOnTouchMove, { passive: false });
+        document.addEventListener('touchend', this._boundOnTouchEnd);
+    }
+    
+    _removeEventListeners() {
+        const colorWheel = this.content.querySelector('#colorWheel');
+        if (colorWheel) {
+            colorWheel.removeEventListener('mousedown', this._boundOnMouseDown);
+            colorWheel.removeEventListener('touchstart', this._boundOnTouchStart);
+        }
         
-        // Update button
-        updateButton.addEventListener('click', this._updateEntityValue.bind(this));
+        document.removeEventListener('mousemove', this._boundOnMouseMove);
+        document.removeEventListener('mouseup', this._boundOnMouseUp);
+        document.removeEventListener('touchmove', this._boundOnTouchMove);
+        document.removeEventListener('touchend', this._boundOnTouchEnd);
     }
 
     _onMouseDown(event) {
@@ -195,6 +237,8 @@ export class ColorWheelCard extends HTMLElement {
 
     _onMouseUp() {
         this._isDragging = false;
+        // Update entity value when mouse is released
+        this._updateEntityValue();
     }
 
     _onTouchStart(event) {
@@ -212,12 +256,17 @@ export class ColorWheelCard extends HTMLElement {
 
     _onTouchEnd() {
         this._isDragging = false;
+        // Update entity value when touch ends
+        this._updateEntityValue();
     }
 
     _updateColorFromEvent(event) {
         const colorWheel = this.content.querySelector('#colorWheel');
         const colorSelector = this.content.querySelector('#colorSelector');
-        const colorDisplay = this.content.querySelector('.color-display');
+        const colorValue = this.content.querySelector('.color-value');
+        const outerCircle = this.content.querySelector('.outer-circle');
+        
+        if (!colorWheel || !colorSelector) return;
         
         const rect = colorWheel.getBoundingClientRect();
         const centerX = rect.width / 2;
@@ -231,6 +280,13 @@ export class ColorWheelCard extends HTMLElement {
         let angle = Math.atan2(y, x) * 180 / Math.PI;
         if (angle < 0) angle += 360;
         
+        // Invert the angle to fix the mirroring
+        angle = (360 - angle) % 360;
+        
+        // Apply rotation to match the visual color wheel
+        // The conic-gradient in CSS starts with red at 0°
+        angle = (angle + 90) % 360;
+        
         const distance = Math.min(Math.sqrt(x * x + y * y), this._wheelRadius);
         const saturation = distance / this._wheelRadius;
         
@@ -238,17 +294,58 @@ export class ColorWheelCard extends HTMLElement {
         const rgb = this._hsvToRgb(angle, saturation, 1);
         this._selectedColor = rgb;
         
-        // Update selector position
-        const selectorX = centerX + Math.cos(angle * Math.PI / 180) * saturation * this._wheelRadius * 0.8;
-        const selectorY = centerY - Math.sin(angle * Math.PI / 180) * saturation * this._wheelRadius * 0.8;
+        // Update selector position - use the original angle for positioning
+        const originalAngle = Math.atan2(y, x) * 180 / Math.PI;
+        const selectorX = centerX + Math.cos(originalAngle * Math.PI / 180) * saturation * this._wheelRadius * 0.95;
+        const selectorY = centerY - Math.sin(originalAngle * Math.PI / 180) * saturation * this._wheelRadius * 0.95;
         
         colorSelector.style.left = `${selectorX}px`;
         colorSelector.style.top = `${selectorY}px`;
         
         // Update color display
-        const colorValue = `rgb(${rgb.r}, ${rgb.g}, ${rgb.b})`;
-        colorSelector.style.backgroundColor = colorValue;
-        colorDisplay.style.backgroundColor = colorValue;
+        const colorHex = this._rgbToHex(rgb.r, rgb.g, rgb.b);
+        const colorRgb = `rgb(${rgb.r}, ${rgb.g}, ${rgb.b})`;
+        
+        colorSelector.style.backgroundColor = colorRgb;
+        
+        // Update the outer circle color
+        if (outerCircle) {
+            outerCircle.style.backgroundColor = colorRgb;
+        }
+        
+        // Preview the color value in the format that will be saved
+        let previewValue;
+        switch (this._currentFormat) {
+            case 'hex':
+                previewValue = colorHex;
+                break;
+            case 'rgb':
+                previewValue = colorRgb;
+                break;
+            case 'array':
+                previewValue = `[${rgb.r}, ${rgb.g}, ${rgb.b}]`;
+                break;
+            case 'auto':
+                // Use the format of the current entity value
+                const entityState = this._hass.states[this._entityId].state;
+                if (entityState.startsWith('#')) {
+                    previewValue = colorHex;
+                } else if (entityState.startsWith('rgb')) {
+                    previewValue = colorRgb;
+                } else if (entityState.startsWith('[')) {
+                    previewValue = `[${rgb.r}, ${rgb.g}, ${rgb.b}]`;
+                } else {
+                    previewValue = colorHex;
+                }
+                break;
+            default:
+                previewValue = colorHex;
+        }
+        
+        // Update the preview text
+        if (colorValue) {
+            colorValue.textContent = previewValue;
+        }
     }
 
     _updateEntityValue() {
@@ -306,41 +403,59 @@ export class ColorWheelCard extends HTMLElement {
     }
 
     _rgbToHsv(r, g, b) {
-        r /= 255;
-        g /= 255;
-        b /= 255;
+        // Normalize RGB values
+        r = r / 255;
+        g = g / 255;
+        b = b / 255;
         
         const max = Math.max(r, g, b);
         const min = Math.min(r, g, b);
-        const d = max - min;
+        const delta = max - min;
         
-        let h;
-        if (d === 0) h = 0;
-        else if (max === r) h = ((g - b) / d) % 6;
-        else if (max === g) h = (b - r) / d + 2;
-        else h = (r - g) / d + 4;
-        
-        h = Math.round(h * 60);
-        if (h < 0) h += 360;
-        
-        const s = max === 0 ? 0 : d / max;
+        // Calculate HSV values
+        let h = 0;
+        const s = max === 0 ? 0 : delta / max;
         const v = max;
+        
+        if (delta === 0) {
+            h = 0; // No color, achromatic (gray)
+        } else {
+            if (max === r) {
+                h = ((g - b) / delta) % 6;
+            } else if (max === g) {
+                h = (b - r) / delta + 2;
+            } else { // max === b
+                h = (r - g) / delta + 4;
+            }
+            
+            h = Math.round(h * 60);
+            if (h < 0) h += 360;
+        }
         
         return { h, s, v };
     }
 
     _hsvToRgb(h, s, v) {
+        // Convert HSV to RGB
         const c = v * s;
-        const x = c * (1 - Math.abs((h / 60) % 2 - 1));
+        const x = c * (1 - Math.abs(((h / 60) % 2) - 1));
         const m = v - c;
         
         let r, g, b;
-        if (h < 60) { r = c; g = x; b = 0; }
-        else if (h < 120) { r = x; g = c; b = 0; }
-        else if (h < 180) { r = 0; g = c; b = x; }
-        else if (h < 240) { r = 0; g = x; b = c; }
-        else if (h < 300) { r = x; g = 0; b = c; }
-        else { r = c; g = 0; b = x; }
+        
+        if (h >= 0 && h < 60) {
+            r = c; g = x; b = 0;
+        } else if (h >= 60 && h < 120) {
+            r = x; g = c; b = 0;
+        } else if (h >= 120 && h < 180) {
+            r = 0; g = c; b = x;
+        } else if (h >= 180 && h < 240) {
+            r = 0; g = x; b = c;
+        } else if (h >= 240 && h < 300) {
+            r = x; g = 0; b = c;
+        } else {
+            r = c; g = 0; b = x;
+        }
         
         return {
             r: Math.round((r + m) * 255),
@@ -411,9 +526,6 @@ export class ColorWheelCard extends HTMLElement {
 
     // Clean up event listeners when the element is removed
     disconnectedCallback() {
-        document.removeEventListener('mousemove', this._onMouseMove.bind(this));
-        document.removeEventListener('mouseup', this._onMouseUp.bind(this));
-        document.removeEventListener('touchmove', this._onTouchMove.bind(this));
-        document.removeEventListener('touchend', this._onTouchEnd.bind(this));
+        this._removeEventListeners();
     }
 }
