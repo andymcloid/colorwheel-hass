@@ -1,62 +1,83 @@
-## Color Wheel
+# Color Wheel Card for Home Assistant
 
-[![hacs_badge](https://img.shields.io/badge/HACS-Default-orange.svg)](https://github.com/hacs/integration)
+A custom card for Home Assistant that provides an interactive color wheel for controlling color entities.
 
-An interactive color wheel card for Home Assistant that allows you to visualize and select colors for your entities. This card can interpret and update different color formats including hex, RGB, and array notation.
-
-![colorwheel screenshot](https://raw.githubusercontent.com/andymcloid/colorwheel-hass/refs/heads/master/screenshot.png)
-
-For installation instructions, see [this guide](https://github.com/thomasloven/hass-config/wiki/Lovelace-Plugins).
-
-# Installation
-
-## HACS
-
-The easiest way to add this to your Homeassistant installation is using [HACS]. 
-
-It's recommended to restart Homeassistent directly after the installation without any change to the Configuration. 
-Homeassistent will install the dependencies during the next reboot. After that you can add and check the configuration without error messages. 
-This is nothing special to this Integration but the same for all custom components.
-
-## Configuration
-
-To use this card, you can add it via the Lovelace UI or manually in YAML:
-
-```yaml
-type: 'custom:color-wheel-card'
-title: Color Wheel
-entity: input_text.my_color
-format: auto
-```
+![Color Wheel Card](./screenshot.png)
 
 ## Features
 
-- Interactive color wheel for intuitive color selection
-- Supports multiple color formats (hex, RGB, array)
-- Auto-detects the format of your entity's color value
-- Updates entity values automatically when you select a color
-- Works with input_text and other entity types that can store text values
+- Interactive color wheel with intuitive controls
+- Accurate HSV color mapping with proper angle calculations
+- Customizable wheel size, padding, and outer ring thickness
+- Support for multiple color formats (hex, RGB, array)
+- Real-time color updates with dragging support
+- Responsive design that works on both desktop and mobile
 
-## Options
+## Installation
 
-### Card
-| Name         | Type    | Default        | Description |
-| ------------ | ------- | -------------- | ----------- |
-| type         | string  |                | `custom:color-wheel-card`
-| title        | string  | `Color Wheel`  | Title of the card
-| entity       | string  |                | Entity ID whose state contains a color value
-| format       | string  | `auto`         | Format of the color value (auto, hex, rgb, array)
+### HACS (Recommended)
 
-### Supported Color Formats
-| Format | Example                | Description |
-| ------ | ---------------------- | ----------- |
-| hex    | `#FF0000` or `FF0000`  | Hexadecimal color notation
-| rgb    | `rgb(255, 0, 0)`       | RGB function notation
-| array  | `[255, 0, 0]`          | JSON array notation
+1. Make sure [HACS](https://hacs.xyz/) is installed in your Home Assistant instance
+2. Add this repository as a custom repository in HACS:
+   - Go to HACS → Integrations → ⋮ → Custom repositories
+   - Add `https://github.com/yourusername/colorwheel` with category "Plugin"
+3. Install the "Color Wheel Card" from HACS
+4. Restart Home Assistant
+
+### Manual Installation
+
+1. Download the `colorwheel-card.js` file from the latest release
+2. Copy it to your `config/www` directory
+3. Add the following to your `configuration.yaml` file:
+   ```yaml
+   lovelace:
+     resources:
+       - url: /local/colorwheel-card.js
+         type: module
+   ```
+4. Restart Home Assistant
 
 ## Usage
 
-1. Add the card to your dashboard
-2. Select an entity that can store text values (like input_text)
-3. Choose the color format you want to use
-4. Use the color wheel to select colors - the entity will update automatically when you release the mouse or lift your finger
+Add the card to your Lovelace UI:
+
+```yaml
+type: custom:color-wheel-card
+entity: input_text.color
+title: Color Wheel
+wheelSize: 300
+padding: 5
+outerThickness: 15
+format: auto
+```
+
+### Configuration Options
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `entity` | string | Required | Entity ID to control |
+| `title` | string | 'Color Wheel' | Card title |
+| `wheelSize` | number | 300 | Diameter of the color wheel in pixels |
+| `padding` | number | 5 | White padding around the wheel in pixels |
+| `outerThickness` | number | 15 | Thickness of the outer ring in pixels |
+| `format` | string | 'auto' | Color format to use ('auto', 'hex', 'rgb', 'array') |
+
+## Development
+
+```bash
+# Clone the repository
+git clone https://github.com/yourusername/colorwheel.git
+
+# Navigate to the directory
+cd colorwheel
+
+# Install dependencies
+npm install
+
+# Build the project
+npm run build
+```
+
+## License
+
+MIT
