@@ -2,6 +2,7 @@
 
 ## 1.0.0 (2025-03-01)
 
+
 ### Features
 
 - Interactive color wheel for Home Assistant
