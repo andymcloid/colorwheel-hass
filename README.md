@@ -20,7 +20,7 @@ A custom card for Home Assistant that provides an interactive color wheel for co
 1. Make sure [HACS](https://hacs.xyz/) is installed in your Home Assistant instance
 2. Add this repository as a custom repository in HACS:
    - Go to HACS → Integrations → ⋮ → Custom repositories
-   - Add `https://github.com/yourusername/colorwheel` with category "Plugin"
+   - Add `https://github.com/andymcloid/colorwheel-hass` with category "Plugin"
 3. Install the "Color Wheel Card" from HACS
 4. Restart Home Assistant
 
@@ -66,7 +66,7 @@ format: auto
 
 ```bash
 # Clone the repository
-git clone https://github.com/yourusername/colorwheel.git
+git clone https://github.com/andymcloid/colorwheel-hass.git
 
 # Navigate to the directory
 cd colorwheel
