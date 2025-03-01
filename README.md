@@ -4,7 +4,7 @@
 
 An interactive color wheel card for Home Assistant that allows you to visualize and select colors for your entities. This card can interpret and update different color formats including hex, RGB, and array notation.
 
-![colorwheel screenshot](https://raw.githubusercontent.com/andymcloid/colorwheel-hass-integration/refs/heads/main/screenshot.png)
+![colorwheel screenshot](https://raw.githubusercontent.com/andymcloid/colorwheel-hass/refs/heads/master/screenshot.png)
 
 For installation instructions, see [this guide](https://github.com/thomasloven/hass-config/wiki/Lovelace-Plugins).
 
