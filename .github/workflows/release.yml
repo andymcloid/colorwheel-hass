@@ -7,6 +7,10 @@ on:
     paths:
       - 'CHANGELOG.md'
 
+# Add permissions block
+permissions:
+  contents: write
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -30,11 +34,9 @@ jobs:
           
           # Extract the changelog for the latest version
           CHANGELOG=$(awk -v ver="## $VERSION" 'BEGIN{flag=0} $0~ver{flag=1; next} /^## [0-9]+\.[0-9]+\.[0-9]+/{if(flag==1) exit} flag{print}' CHANGELOG.md)
-          # Escape newlines for GitHub Actions
-          CHANGELOG="${CHANGELOG//'%'/'%25'}"
-          CHANGELOG="${CHANGELOG//$'\n'/'%0A'}"
-          CHANGELOG="${CHANGELOG//$'\r'/'%0D'}"
-          echo "changelog=$CHANGELOG" >> $GITHUB_OUTPUT
+          echo "changelog<<EOF" >> $GITHUB_OUTPUT
+          echo "$CHANGELOG" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
 
       - name: Check if tag exists
         id: check_tag
@@ -47,12 +49,10 @@ jobs:
 
       - name: Create Release
         if: steps.check_tag.outputs.tag_exists == 'false'
-        uses: actions/create-release@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          tag_name: v${{ steps.extract_version.outputs.version }}
-          release_name: Release v${{ steps.extract_version.outputs.version }}
-          body: ${{ steps.extract_version.outputs.changelog }}
-          draft: false
-          prerelease: false 
+        run: |
+          gh release create "v${{ steps.extract_version.outputs.version }}" \
+            --title "Release v${{ steps.extract_version.outputs.version }}" \
+            --notes "${{ steps.extract_version.outputs.changelog }}" \
+            --target "${{ github.sha }}" 
