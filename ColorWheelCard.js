@@ -1,14 +1,17 @@
 export class ColorWheelCard extends HTMLElement {
     constructor() {
         super();
+        console.log('[ColorWheel] Constructor called');
         this._selectedColor = null;
         this._currentFormat = 'auto';
         this._entityId = null;
-        this._wheelRadius = 150;
+        this._wheelRadius = 150; // Default wheel radius
+        this._padding = 5;       // Default white padding
+        this._outerThickness = 15; // Default outer ring thickness
         this._isDragging = false;
-        this._preventUIUpdate = false;
-        this._lastClientX = 0;
-        this._lastClientY = 0;
+        this._isReady = true; // Always assume ready
+        this._renderRequested = false;
+        this._configApplied = false;
         
         // Bind event handlers once to prevent memory leaks
         this._boundOnMouseDown = this._onMouseDown.bind(this);
@@ -17,253 +20,464 @@ export class ColorWheelCard extends HTMLElement {
         this._boundOnTouchStart = this._onTouchStart.bind(this);
         this._boundOnTouchMove = this._onTouchMove.bind(this);
         this._boundOnTouchEnd = this._onTouchEnd.bind(this);
+        
+        console.log('[ColorWheel] Constructor completed');
+    }
+
+    connectedCallback() {
+        console.log('[ColorWheel] Connected to DOM');
+        // Force immediate rendering
+        this._renderInitialUI();
+    }
+    
+    _renderInitialUI() {
+        // Create a basic placeholder UI that's immediately interactive
+        if (!this.content) {
+            console.log('[ColorWheel] Creating initial placeholder UI');
+            
+            try {
+                // Apply config if available
+                if (this.config) {
+                    this._applyConfig();
+                }
+                
+                const card = document.createElement('ha-card');
+                card.header = this.config ? (this.config.title || 'Color Wheel') : 'Color Wheel';
+                this.content = document.createElement('div');
+                this.content.style.padding = '0 16px 16px';
+                
+                // Create a simple placeholder wheel that's immediately interactive
+                // Use configured sizes if available
+                const wheelSize = this._wheelRadius * 2;
+                const totalSize = wheelSize + (this._outerThickness * 2);
+                
+                this.content.innerHTML = `
+                    <style>
+                        .color-wheel-container {
+                            display: flex;
+                            flex-direction: column;
+                            align-items: center;
+                            margin-bottom: 16px;
+                        }
+                        .wheel-wrapper {
+                            position: relative;
+                            width: ${totalSize}px;
+                            height: ${totalSize}px;
+                            display: flex;
+                            justify-content: center;
+                            align-items: center;
+                            margin: 20px 0;
+                        }
+                        .outer-circle {
+                            position: absolute;
+                            width: ${totalSize}px;
+                            height: ${totalSize}px;
+                            border-radius: 50%;
+                            background-color: #FF0000;
+                            z-index: 1;
+                        }
+                        .color-wheel {
+                            position: relative;
+                            width: ${wheelSize}px;
+                            height: ${wheelSize}px;
+                            border-radius: 50%;
+                            cursor: pointer;
+                            background: conic-gradient(
+                                hsl(0, 100%, 50%),
+                                hsl(60, 100%, 50%),
+                                hsl(120, 100%, 50%),
+                                hsl(180, 100%, 50%),
+                                hsl(240, 100%, 50%),
+                                hsl(300, 100%, 50%),
+                                hsl(360, 100%, 50%)
+                            );
+                            border: ${this._padding}px solid white;
+                            box-sizing: border-box;
+                            z-index: 2;
+                        }
+                    </style>
+                    <div class="color-wheel-container">
+                        <div class="wheel-wrapper">
+                            <div class="outer-circle"></div>
+                            <div class="color-wheel" id="colorWheel"></div>
+                        </div>
+                    </div>
+                `;
+                
+                card.appendChild(this.content);
+                this.appendChild(card);
+                
+                // Set up basic event listeners immediately
+                const colorWheel = this.content.querySelector('#colorWheel');
+                if (colorWheel) {
+                    colorWheel.onclick = (e) => {
+                        console.log('[ColorWheel] Initial click detected');
+                        this._updateColorFromEvent(e);
+                        this._updateEntityValue();
+                    };
+                }
+            } catch (error) {
+                console.error('[ColorWheel] Error in initial UI rendering:', error);
+                // Create a minimal fallback UI
+                const card = document.createElement('ha-card');
+                card.header = 'Color Wheel';
+                this.content = document.createElement('div');
+                this.content.innerHTML = '<div style="padding: 16px;">Loading color wheel...</div>';
+                card.appendChild(this.content);
+                this.appendChild(card);
+            }
+        }
+    }
+
+    setConfig(config) {
+        console.log('[ColorWheel] Setting config:', config);
+        if (!config.entity) {
+            throw new Error('You need to define an entity');
+        }
+        this.config = config;
+        
+        // Apply config immediately if we're already connected
+        if (this.isConnected) {
+            this._applyConfig();
+            
+            // Re-render if we already have content
+            if (this.content && !this._configApplied) {
+                this._renderInitialUI();
+                this._configApplied = true;
+            }
+        }
+    }
+    
+    _applyConfig() {
+        if (!this.config) return;
+        
+        // Set wheel radius, padding and outer thickness from config
+        this._wheelRadius = this.config.wheelSize ? this.config.wheelSize / 2 : 150;
+        this._padding = this.config.padding !== undefined ? this.config.padding : 5;
+        this._outerThickness = this.config.outerThickness !== undefined ? this.config.outerThickness : 15;
+        console.log('[ColorWheel] Applied config - radius:', this._wheelRadius, 'padding:', this._padding, 'thickness:', this._outerThickness);
     }
 
     set hass(hass) {
+        console.log('[ColorWheel] hass setter called, isDragging:', this._isDragging);
         this._hass = hass;
-        if (!this.content) {
-            this._initializeCard();
-        }
-
+        
         // Skip UI updates if we're currently dragging
-        if (this._preventUIUpdate) {
+        if (this._isDragging) {
+            console.log('[ColorWheel] Skipping UI update due to active drag');
             return;
         }
 
         // Get the entity from config
+        if (!this.config) {
+            console.log('[ColorWheel] No config yet, skipping update');
+            return;
+        }
+        
+        // Apply config if not already applied
+        if (!this._configApplied) {
+            this._applyConfig();
+            this._configApplied = true;
+        }
+        
         this._entityId = this.config.entity;
         
         if (!this._entityId || !this._hass.states[this._entityId]) {
-            this.content.innerHTML = `
-                <div class="color-error">
-                    Entity not found or not specified
-                </div>
-            `;
+            console.log('[ColorWheel] Entity not found:', this._entityId);
+            if (this.content) {
+                this.content.innerHTML = `
+                    <div class="color-error" style="color: red; padding: 16px;">
+                        Entity not found or not specified: ${this._entityId || 'none'}
+                    </div>
+                `;
+            }
             return;
         }
 
-        const entityState = this._hass.states[this._entityId].state;
-        this._currentFormat = this.config.format || 'auto';
-        
-        // Parse the color based on format
-        const color = this.parseColor(entityState, this._currentFormat);
-        
-        if (!color) {
-            this.content.innerHTML = `
-                <div class="color-error">
-                    Unable to parse color: ${entityState}
-                </div>
-            `;
-            return;
-        }
+        try {
+            const entityState = this._hass.states[this._entityId].state;
+            this._currentFormat = this.config.format || 'auto';
+            
+            // Parse the color based on format
+            const color = this.parseColor(entityState, this._currentFormat);
+            
+            if (!color) {
+                console.log('[ColorWheel] Unable to parse color:', entityState);
+                if (this.content) {
+                    this.content.innerHTML = `
+                        <div class="color-error" style="color: red; padding: 16px;">
+                            Unable to parse color: ${entityState}
+                        </div>
+                    `;
+                }
+                return;
+            }
 
-        // Update the UI with the current color
-        this._updateUI(color, entityState);
+            // Request animation frame for UI update to avoid blocking
+            if (!this._renderRequested) {
+                this._renderRequested = true;
+                requestAnimationFrame(() => {
+                    try {
+                        console.log('[ColorWheel] Updating UI with color:', color);
+                        this._updateUI(color, entityState);
+                    } catch (error) {
+                        console.error('[ColorWheel] Error updating UI:', error);
+                    } finally {
+                        this._renderRequested = false;
+                    }
+                });
+            }
+        } catch (error) {
+            console.error('[ColorWheel] Error in hass setter:', error);
+            if (this.content) {
+                this.content.innerHTML = `
+                    <div class="color-error" style="color: red; padding: 16px;">
+                        Error: ${error.message}
+                    </div>
+                `;
+            }
+        }
     }
 
     _initializeCard() {
-        const card = document.createElement('ha-card');
-        card.header = this.config.title || 'Color Wheel';
-        this.content = document.createElement('div');
-        this.content.style.padding = '0 16px 16px';
-        card.appendChild(this.content);
-        this.appendChild(card);
-    }
-
-    _updateUI(color, entityState) {
-        // Extract RGB values from the color
-        let r, g, b;
-        if (color.startsWith('#')) {
-            const hex = color.substring(1);
-            r = parseInt(hex.substring(0, 2), 16);
-            g = parseInt(hex.substring(2, 4), 16);
-            b = parseInt(hex.substring(4, 6), 16);
-        } else if (color.startsWith('rgb')) {
-            const match = color.match(/rgb\((\d+),\s*(\d+),\s*(\d+)\)/);
-            if (match) {
-                [, r, g, b] = match.map(Number);
-            }
+        console.log('[ColorWheel] Initializing card');
+        if (!this.content) {
+            const card = document.createElement('ha-card');
+            card.header = this.config.title || 'Color Wheel';
+            this.content = document.createElement('div');
+            this.content.style.padding = '0 16px 16px';
+            card.appendChild(this.content);
+            this.appendChild(card);
         }
-
-        this._selectedColor = { r, g, b };
         
-        // Convert RGB to HSV for the color wheel
-        const hsv = this._rgbToHsv(r, g, b);
+        // Apply config
+        this._applyConfig();
+    }
+    
+    _updateUI(color, entityState) {
+        console.log('[ColorWheel] Starting UI update');
         
-        // For the initial position, we need to convert back from the angle adjustment
-        // that we use in _updateColorFromEvent
-        // First, subtract the 90° rotation
-        let displayAngle = (hsv.h - 90) % 360;
-        if (displayAngle < 0) displayAngle += 360;
+        // Initialize card if needed
+        if (!this.content || !this.content.parentNode) {
+            this._initializeCard();
+        }
         
-        // Then invert the angle
-        displayAngle = (360 - displayAngle) % 360;
-        
-        // Calculate selector position
-        const selectorX = this._wheelRadius + Math.cos(displayAngle * Math.PI / 180) * hsv.s * this._wheelRadius * 0.95;
-        const selectorY = this._wheelRadius - Math.sin(displayAngle * Math.PI / 180) * hsv.s * this._wheelRadius * 0.95;
+        // Create the HTML content first
+        const htmlContent = this._createHtmlContent(color, entityState);
         
         // Clean up old event listeners
         this._removeEventListeners();
         
-        this.content.innerHTML = `
-            <style>
-                .color-wheel-container {
-                    display: flex;
-                    flex-direction: column;
-                    align-items: center;
-                    margin-bottom: 16px;
+        // Update the content
+        this.content.innerHTML = htmlContent;
+        
+        // Add event listeners immediately after updating the content
+        this._setupEventListeners();
+        console.log('[ColorWheel] UI update completed');
+    }
+    
+    _createHtmlContent(color, entityState) {
+        console.log('[ColorWheel] Creating HTML content');
+        try {
+            // Extract RGB values from the color
+            let r, g, b;
+            if (color.startsWith('#')) {
+                const hex = color.substring(1);
+                r = parseInt(hex.substring(0, 2), 16);
+                g = parseInt(hex.substring(2, 4), 16);
+                b = parseInt(hex.substring(4, 6), 16);
+            } else if (color.startsWith('rgb')) {
+                const match = color.match(/rgb\((\d+),\s*(\d+),\s*(\d+)\)/);
+                if (match) {
+                    [, r, g, b] = match.map(Number);
                 }
-                .wheel-wrapper {
-                    position: relative;
-                    width: ${this._wheelRadius * 2 + 30}px;
-                    height: ${this._wheelRadius * 2 + 30}px;
-                    display: flex;
-                    justify-content: center;
-                    align-items: center;
-                    margin: 20px 0;
-                }
-                .outer-circle {
-                    position: absolute;
-                    width: ${this._wheelRadius * 2 + 30}px;
-                    height: ${this._wheelRadius * 2 + 30}px;
-                    border-radius: 50%;
-                    background-color: ${color};
-                    z-index: 1;
-                }
-                .color-wheel {
-                    position: relative;
-                    width: ${this._wheelRadius * 2}px;
-                    height: ${this._wheelRadius * 2}px;
-                    border-radius: 50%;
-                    cursor: pointer;
-                    background: conic-gradient(
-                        hsl(0, 100%, 50%),   /* Red */
-                        hsl(60, 100%, 50%),  /* Yellow */
-                        hsl(120, 100%, 50%), /* Green */
-                        hsl(180, 100%, 50%), /* Cyan */
-                        hsl(240, 100%, 50%), /* Blue */
-                        hsl(300, 100%, 50%), /* Magenta */
-                        hsl(360, 100%, 50%)  /* Red again */
-                    );
-                    border: 5px solid white;
-                    box-sizing: border-box;
-                    z-index: 2;
-                }
-                .color-wheel::after {
-                    content: '';
-                    position: absolute;
-                    top: 50%;
-                    left: 50%;
-                    transform: translate(-50%, -50%);
-                    width: 5%;
-                    height: 5%;
-                    border-radius: 50%;
-                    background: white;
-                    box-shadow: 0 0 5px rgba(0, 0, 0, 0.3);
-                }
-                .color-selector {
-                    position: absolute;
-                    width: 20px;
-                    height: 20px;
-                    border-radius: 50%;
-                    border: 3px solid white;
-                    box-shadow: 0 0 5px rgba(0, 0, 0, 0.5);
-                    transform: translate(-50%, -50%);
-                    background-color: ${color};
-                    z-index: 3;
-                    left: ${selectorX}px;
-                    top: ${selectorY}px;
-                }
-                .color-value {
-                    font-family: var(--paper-font-body1_-_font-family);
-                    padding: 8px;
-                    text-align: center;
-                    font-size: 14px;
-                    color: var(--primary-text-color);
-                    margin-top: 10px;
-                }
-                .color-error {
-                    color: var(--error-color);
-                    padding: 8px;
-                }
-            </style>
-            <div class="color-wheel-container">
-                <div class="wheel-wrapper">
-                    <div class="outer-circle"></div>
-                    <div class="color-wheel" id="colorWheel">
-                        <div class="color-selector" id="colorSelector"></div>
+            }
+
+            this._selectedColor = { r, g, b };
+            
+            // Convert RGB to HSV for the color wheel
+            const hsv = this._rgbToHsv(r, g, b);
+            
+            // For the initial position, we need to convert back from the angle adjustment
+            // that we use in _updateColorFromEvent
+            // First, subtract the 90° rotation
+            let displayAngle = (hsv.h - 90) % 360;
+            if (displayAngle < 0) displayAngle += 360;
+            
+            // Then invert the angle
+            displayAngle = (360 - displayAngle) % 360;
+            
+            // Calculate selector position - use a consistent factor for positioning
+            const positionFactor = 0.92; // Keep selector slightly inside the wheel edge
+            const selectorX = this._wheelRadius + Math.cos(displayAngle * Math.PI / 180) * hsv.s * this._wheelRadius * positionFactor;
+            const selectorY = this._wheelRadius - Math.sin(displayAngle * Math.PI / 180) * hsv.s * this._wheelRadius * positionFactor;
+            
+            return `
+                <style>
+                    .color-wheel-container {
+                        display: flex;
+                        flex-direction: column;
+                        align-items: center;
+                        margin-bottom: 16px;
+                    }
+                    .wheel-wrapper {
+                        position: relative;
+                        width: ${this._wheelRadius * 2 + this._outerThickness * 2}px;
+                        height: ${this._wheelRadius * 2 + this._outerThickness * 2}px;
+                        display: flex;
+                        justify-content: center;
+                        align-items: center;
+                        margin: 20px 0;
+                    }
+                    .outer-circle {
+                        position: absolute;
+                        width: ${this._wheelRadius * 2 + this._outerThickness * 2}px;
+                        height: ${this._wheelRadius * 2 + this._outerThickness * 2}px;
+                        border-radius: 50%;
+                        background-color: ${color};
+                        z-index: 1;
+                    }
+                    .color-wheel {
+                        position: relative;
+                        width: ${this._wheelRadius * 2}px;
+                        height: ${this._wheelRadius * 2}px;
+                        border-radius: 50%;
+                        cursor: pointer;
+                        background: conic-gradient(
+                            hsl(0, 100%, 50%),   /* Red */
+                            hsl(60, 100%, 50%),  /* Yellow */
+                            hsl(120, 100%, 50%), /* Green */
+                            hsl(180, 100%, 50%), /* Cyan */
+                            hsl(240, 100%, 50%), /* Blue */
+                            hsl(300, 100%, 50%), /* Magenta */
+                            hsl(360, 100%, 50%)  /* Red again */
+                        );
+                        border: ${this._padding}px solid white;
+                        box-sizing: border-box;
+                        z-index: 2;
+                    }
+                    .color-wheel::after {
+                        content: '';
+                        position: absolute;
+                        top: 50%;
+                        left: 50%;
+                        transform: translate(-50%, -50%);
+                        width: 5%;
+                        height: 5%;
+                        border-radius: 50%;
+                        background: white;
+                        box-shadow: 0 0 5px rgba(0, 0, 0, 0.3);
+                    }
+                    .color-selector {
+                        position: absolute;
+                        width: ${Math.max(10, this._wheelRadius / 10)}px;
+                        height: ${Math.max(10, this._wheelRadius / 10)}px;
+                        border-radius: 50%;
+                        border: 2px solid white;
+                        box-shadow: 0 0 5px rgba(0, 0, 0, 0.5);
+                        transform: translate(-50%, -50%);
+                        background-color: ${color};
+                        z-index: 3;
+                        pointer-events: none;
+                        left: ${selectorX}px;
+                        top: ${selectorY}px;
+                    }
+                    .color-error {
+                        color: var(--error-color);
+                        padding: 8px;
+                    }
+                </style>
+                <div class="color-wheel-container">
+                    <div class="wheel-wrapper">
+                        <div class="outer-circle"></div>
+                        <div class="color-wheel" id="colorWheel">
+                            <div class="color-selector" id="colorSelector"></div>
+                        </div>
                     </div>
                 </div>
-                <div class="color-value">${entityState}</div>
-            </div>
-        `;
-
-        // Add event listeners after the content is rendered
-        this._setupEventListeners();
+            `;
+        } catch (error) {
+            console.error('[ColorWheel] Error creating HTML content:', error);
+            return `
+                <div style="color: red; padding: 16px;">
+                    Error creating color wheel: ${error.message}
+                </div>
+            `;
+        }
     }
 
     _setupEventListeners() {
+        console.log('[ColorWheel] Setting up event listeners');
         const colorWheel = this.content.querySelector('#colorWheel');
-        if (!colorWheel) return;
+        if (!colorWheel) {
+            console.log('[ColorWheel] No color wheel found to attach events');
+            return;
+        }
         
-        // Direct event listeners - no delegation
+        // Use direct event binding for immediate response
         colorWheel.onmousedown = (e) => {
+            console.log('[ColorWheel] Mouse down event detected');
             e.preventDefault();
             this._isDragging = true;
-            this._preventUIUpdate = true;
             this._updateColorFromEvent(e);
             
-            // Set up temporary move and up handlers
             document.onmousemove = (e) => {
+                e.preventDefault();
                 if (this._isDragging) {
                     this._updateColorFromEvent(e);
                 }
             };
             
-            document.onmouseup = (e) => {
+            document.onmouseup = () => {
+                console.log('[ColorWheel] Mouse up event detected');
                 this._isDragging = false;
-                this._preventUIUpdate = false;
                 this._updateEntityValue();
-                
-                // Clean up temporary handlers
                 document.onmousemove = null;
                 document.onmouseup = null;
             };
         };
         
-        // Touch events
         colorWheel.ontouchstart = (e) => {
+            console.log('[ColorWheel] Touch start event detected');
             e.preventDefault();
             this._isDragging = true;
-            this._preventUIUpdate = true;
             this._updateColorFromEvent(e.touches[0]);
             
-            // Set up temporary move and end handlers
             document.ontouchmove = (e) => {
+                e.preventDefault();
                 if (this._isDragging) {
-                    e.preventDefault();
                     this._updateColorFromEvent(e.touches[0]);
                 }
             };
             
-            document.ontouchend = (e) => {
+            document.ontouchend = () => {
+                console.log('[ColorWheel] Touch end event detected');
                 this._isDragging = false;
-                this._preventUIUpdate = false;
                 this._updateEntityValue();
-                
-                // Clean up temporary handlers
                 document.ontouchmove = null;
                 document.ontouchend = null;
             };
         };
+        
+        // Add a click handler as a backup
+        colorWheel.onclick = (e) => {
+            console.log('[ColorWheel] Click event detected');
+            if (!this._isDragging) {
+                this._updateColorFromEvent(e);
+                this._updateEntityValue();
+            }
+        };
+        
+        console.log('[ColorWheel] Event listeners setup completed');
     }
     
     _removeEventListeners() {
+        console.log('[ColorWheel] Removing event listeners');
         const colorWheel = this.content.querySelector('#colorWheel');
         if (colorWheel) {
             colorWheel.onmousedown = null;
             colorWheel.ontouchstart = null;
+            colorWheel.onclick = null;
         }
         
         // Clean up any lingering document handlers
@@ -271,32 +485,25 @@ export class ColorWheelCard extends HTMLElement {
         document.onmouseup = null;
         document.ontouchmove = null;
         document.ontouchend = null;
+        console.log('[ColorWheel] Event listeners removed');
     }
 
     _onMouseDown(event) {
         event.preventDefault(); // Prevent default to ensure drag works on first click
         this._isDragging = true;
-        this._preventUIUpdate = true;
-        this._lastClientX = event.clientX;
-        this._lastClientY = event.clientY;
         this._updateColorFromEvent(event);
     }
 
     _onMouseMove(event) {
         if (this._isDragging) {
             // Only update if the mouse has actually moved
-            if (event.clientX !== this._lastClientX || event.clientY !== this._lastClientY) {
-                this._lastClientX = event.clientX;
-                this._lastClientY = event.clientY;
-                this._updateColorFromEvent(event);
-            }
+            this._updateColorFromEvent(event);
         }
     }
 
     _onMouseUp(event) {
         if (this._isDragging) {
             this._isDragging = false;
-            this._preventUIUpdate = false;
             // Update entity value when mouse is released
             this._updateEntityValue();
         }
@@ -305,42 +512,34 @@ export class ColorWheelCard extends HTMLElement {
     _onTouchStart(event) {
         event.preventDefault();
         this._isDragging = true;
-        this._preventUIUpdate = true;
-        const touch = event.touches[0];
-        this._lastClientX = touch.clientX;
-        this._lastClientY = touch.clientY;
-        this._updateColorFromEvent(touch);
+        this._updateColorFromEvent(event.touches[0]);
     }
 
     _onTouchMove(event) {
         if (this._isDragging) {
             event.preventDefault();
-            const touch = event.touches[0];
-            // Only update if the touch has actually moved
-            if (touch.clientX !== this._lastClientX || touch.clientY !== this._lastClientY) {
-                this._lastClientX = touch.clientX;
-                this._lastClientY = touch.clientY;
-                this._updateColorFromEvent(touch);
-            }
+            this._updateColorFromEvent(event.touches[0]);
         }
     }
 
     _onTouchEnd(event) {
         if (this._isDragging) {
             this._isDragging = false;
-            this._preventUIUpdate = false;
             // Update entity value when touch ends
             this._updateEntityValue();
         }
     }
 
     _updateColorFromEvent(event) {
+        console.log('[ColorWheel] Updating color from event');
         const colorWheel = this.content.querySelector('#colorWheel');
         const colorSelector = this.content.querySelector('#colorSelector');
-        const colorValue = this.content.querySelector('.color-value');
         const outerCircle = this.content.querySelector('.outer-circle');
         
-        if (!colorWheel || !colorSelector) return;
+        if (!colorWheel || !colorSelector) {
+            console.log('[ColorWheel] Missing wheel or selector elements');
+            return;
+        }
         
         const rect = colorWheel.getBoundingClientRect();
         const centerX = rect.width / 2;
@@ -369,61 +568,36 @@ export class ColorWheelCard extends HTMLElement {
         this._selectedColor = rgb;
         
         // Update selector position - use the original angle for positioning
+        // Use a consistent factor for positioning to keep selector inside the wheel
+        const positionFactor = 0.92; // Keep selector slightly inside the wheel edge
         const originalAngle = Math.atan2(y, x) * 180 / Math.PI;
-        const selectorX = centerX + Math.cos(originalAngle * Math.PI / 180) * saturation * this._wheelRadius * 0.95;
-        const selectorY = centerY - Math.sin(originalAngle * Math.PI / 180) * saturation * this._wheelRadius * 0.95;
+        const selectorX = centerX + Math.cos(originalAngle * Math.PI / 180) * saturation * this._wheelRadius * positionFactor;
+        const selectorY = centerY - Math.sin(originalAngle * Math.PI / 180) * saturation * this._wheelRadius * positionFactor;
         
-        colorSelector.style.left = `${selectorX}px`;
-        colorSelector.style.top = `${selectorY}px`;
-        
-        // Update color display
-        const colorHex = this._rgbToHex(rgb.r, rgb.g, rgb.b);
-        const colorRgb = `rgb(${rgb.r}, ${rgb.g}, ${rgb.b})`;
-        
-        colorSelector.style.backgroundColor = colorRgb;
-        
-        // Update the outer circle color
-        if (outerCircle) {
-            outerCircle.style.backgroundColor = colorRgb;
-        }
-        
-        // Preview the color value in the format that will be saved
-        let previewValue;
-        switch (this._currentFormat) {
-            case 'hex':
-                previewValue = colorHex;
-                break;
-            case 'rgb':
-                previewValue = colorRgb;
-                break;
-            case 'array':
-                previewValue = `[${rgb.r}, ${rgb.g}, ${rgb.b}]`;
-                break;
-            case 'auto':
-                // Use the format of the current entity value
-                const entityState = this._hass.states[this._entityId].state;
-                if (entityState.startsWith('#')) {
-                    previewValue = colorHex;
-                } else if (entityState.startsWith('rgb')) {
-                    previewValue = colorRgb;
-                } else if (entityState.startsWith('[')) {
-                    previewValue = `[${rgb.r}, ${rgb.g}, ${rgb.b}]`;
-                } else {
-                    previewValue = colorHex;
-                }
-                break;
-            default:
-                previewValue = colorHex;
-        }
-        
-        // Update the preview text
-        if (colorValue) {
-            colorValue.textContent = previewValue;
+        // Update selector position directly
+        if (colorSelector) {
+            colorSelector.style.left = `${selectorX}px`;
+            colorSelector.style.top = `${selectorY}px`;
+            
+            // Update color display
+            const colorRgb = `rgb(${rgb.r}, ${rgb.g}, ${rgb.b})`;
+            colorSelector.style.backgroundColor = colorRgb;
+            
+            // Update the outer circle color
+            if (outerCircle) {
+                outerCircle.style.backgroundColor = colorRgb;
+            }
+            
+            console.log('[ColorWheel] Color updated to:', colorRgb);
         }
     }
 
     _updateEntityValue() {
-        if (!this._selectedColor || !this._entityId) return;
+        console.log('[ColorWheel] Updating entity value');
+        if (!this._selectedColor || !this._entityId) {
+            console.log('[ColorWheel] No color or entity to update');
+            return;
+        }
         
         // Format the color according to the configured format
         let formattedColor;
@@ -455,18 +629,19 @@ export class ColorWheelCard extends HTMLElement {
                 formattedColor = this._rgbToHex(this._selectedColor.r, this._selectedColor.g, this._selectedColor.b);
         }
         
+        console.log('[ColorWheel] Sending color update:', formattedColor);
         // Call service to update entity
         this._hass.callService('input_text', 'set_value', {
             entity_id: this._entityId,
             value: formattedColor
         }).catch(error => {
-            console.error('Failed to update entity:', error);
+            console.error('[ColorWheel] Failed to update entity:', error);
             // Try alternative service if input_text fails
             this._hass.callService('homeassistant', 'update_entity', {
                 entity_id: this._entityId,
                 new_state: formattedColor
             }).catch(err => {
-                console.error('Failed to update entity with alternative method:', err);
+                console.error('[ColorWheel] Failed to update entity with alternative method:', err);
             });
         });
     }
@@ -576,13 +751,6 @@ export class ColorWheelCard extends HTMLElement {
         }
     }
 
-    setConfig(config) {
-        if (!config.entity) {
-            throw new Error('You need to define an entity');
-        }
-        this.config = config;
-    }
-
     static getConfigElement() {
         return document.createElement("color-wheel-editor");
     }
@@ -590,7 +758,10 @@ export class ColorWheelCard extends HTMLElement {
     static getStubConfig() {
         return {
             entity: '',
-            format: 'auto'
+            format: 'auto',
+            wheelSize: 300,
+            padding: 5,
+            outerThickness: 15
         };
     }
 

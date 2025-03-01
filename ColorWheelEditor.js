@@ -4,7 +4,13 @@ export class ColorWheelEditor extends LitElement {
     constructor() {
         super();
         this._hass = null;
-        this.config = { entity: '', format: 'auto' };
+        this.config = { 
+            entity: '', 
+            format: 'auto',
+            wheelSize: 150,
+            padding: 5,
+            outerThickness: 15
+        };
     }
 
     static get properties() {
@@ -27,6 +33,24 @@ export class ColorWheelEditor extends LitElement {
                     { value: 'array', label: 'Array ([r,g,b])' }
                 ]
             } } },
+            { name: 'wheelSize', label: 'Wheel Size (px)', selector: { number: { 
+                min: 50, 
+                max: 300,
+                step: 10,
+                mode: 'slider'
+            } } },
+            { name: 'padding', label: 'White Padding (px)', selector: { number: { 
+                min: 0, 
+                max: 20,
+                step: 1,
+                mode: 'slider'
+            } } },
+            { name: 'outerThickness', label: 'Outer Ring Thickness (px)', selector: { number: { 
+                min: 0, 
+                max: 30,
+                step: 1,
+                mode: 'slider'
+            } } },
         ];
     }
 
@@ -37,7 +61,13 @@ export class ColorWheelEditor extends LitElement {
     `;
 
     setConfig(config) {
-        this.config = config || { entity: '', format: 'auto' };
+        this.config = config || { 
+            entity: '', 
+            format: 'auto', 
+            wheelSize: 150, 
+            padding: 5,
+            outerThickness: 15
+        };
         this.render(); // Trigger re-render when config is set
     }
 
