@@ -97,7 +97,6 @@ export class ColorWheelCard extends HTMLElement {
                             <div class="outer-circle"></div>
                             <div class="color-wheel" id="colorWheel">
                                 <div class="color-selector" id="colorSelector"></div>
-                                <div class="debug-boundary"></div>
                             </div>
                         </div>
                     </div>
@@ -403,18 +402,6 @@ export class ColorWheelCard extends HTMLElement {
                         left: ${selectorX}px;
                         top: ${selectorY}px;
                     }
-                    .debug-boundary {
-                        position: absolute;
-                        top: 50%;
-                        left: 50%;
-                        transform: translate(-50%, -50%);
-                        width: ${(effectiveRadius * 2)}px;
-                        height: ${(effectiveRadius * 2)}px;
-                        border-radius: 50%;
-                        border: 1px dashed rgba(255, 0, 0, 0.5);
-                        pointer-events: none;
-                        z-index: 4;
-                    }
                     .color-error {
                         color: var(--error-color);
                         padding: 8px;
@@ -424,7 +411,6 @@ export class ColorWheelCard extends HTMLElement {
                     <div class="wheel-wrapper">
                         <div class="outer-circle"></div>
                         <div class="color-wheel" id="colorWheel">
-                            <div class="debug-boundary"></div>
                         </div>
                         <div class="color-selector" id="colorSelector"></div>
                     </div>
