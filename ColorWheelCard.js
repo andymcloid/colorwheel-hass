@@ -6,6 +6,9 @@ export class ColorWheelCard extends HTMLElement {
         this._entityId = null;
         this._wheelRadius = 150;
         this._isDragging = false;
+        this._preventUIUpdate = false;
+        this._lastClientX = 0;
+        this._lastClientY = 0;
         
         // Bind event handlers once to prevent memory leaks
         this._boundOnMouseDown = this._onMouseDown.bind(this);
@@ -20,6 +23,11 @@ export class ColorWheelCard extends HTMLElement {
         this._hass = hass;
         if (!this.content) {
             this._initializeCard();
+        }
+
+        // Skip UI updates if we're currently dragging
+        if (this._preventUIUpdate) {
+            return;
         }
 
         // Get the entity from config
@@ -95,6 +103,9 @@ export class ColorWheelCard extends HTMLElement {
         const selectorX = this._wheelRadius + Math.cos(displayAngle * Math.PI / 180) * hsv.s * this._wheelRadius * 0.95;
         const selectorY = this._wheelRadius - Math.sin(displayAngle * Math.PI / 180) * hsv.s * this._wheelRadius * 0.95;
         
+        // Clean up old event listeners
+        this._removeEventListeners();
+        
         this.content.innerHTML = `
             <style>
                 .color-wheel-container {
@@ -159,7 +170,6 @@ export class ColorWheelCard extends HTMLElement {
                     border: 3px solid white;
                     box-shadow: 0 0 5px rgba(0, 0, 0, 0.5);
                     transform: translate(-50%, -50%);
-                    pointer-events: none;
                     background-color: ${color};
                     z-index: 3;
                     left: ${selectorX}px;
@@ -190,74 +200,138 @@ export class ColorWheelCard extends HTMLElement {
         `;
 
         // Add event listeners after the content is rendered
-        this._addEventListeners();
+        this._setupEventListeners();
     }
 
-    _addEventListeners() {
+    _setupEventListeners() {
         const colorWheel = this.content.querySelector('#colorWheel');
         if (!colorWheel) return;
         
-        // Remove any existing listeners first
-        this._removeEventListeners();
+        // Direct event listeners - no delegation
+        colorWheel.onmousedown = (e) => {
+            e.preventDefault();
+            this._isDragging = true;
+            this._preventUIUpdate = true;
+            this._updateColorFromEvent(e);
+            
+            // Set up temporary move and up handlers
+            document.onmousemove = (e) => {
+                if (this._isDragging) {
+                    this._updateColorFromEvent(e);
+                }
+            };
+            
+            document.onmouseup = (e) => {
+                this._isDragging = false;
+                this._preventUIUpdate = false;
+                this._updateEntityValue();
+                
+                // Clean up temporary handlers
+                document.onmousemove = null;
+                document.onmouseup = null;
+            };
+        };
         
-        // Color wheel events
-        colorWheel.addEventListener('mousedown', this._boundOnMouseDown);
-        document.addEventListener('mousemove', this._boundOnMouseMove);
-        document.addEventListener('mouseup', this._boundOnMouseUp);
-        
-        // Touch events for mobile
-        colorWheel.addEventListener('touchstart', this._boundOnTouchStart, { passive: false });
-        document.addEventListener('touchmove', this._boundOnTouchMove, { passive: false });
-        document.addEventListener('touchend', this._boundOnTouchEnd);
+        // Touch events
+        colorWheel.ontouchstart = (e) => {
+            e.preventDefault();
+            this._isDragging = true;
+            this._preventUIUpdate = true;
+            this._updateColorFromEvent(e.touches[0]);
+            
+            // Set up temporary move and end handlers
+            document.ontouchmove = (e) => {
+                if (this._isDragging) {
+                    e.preventDefault();
+                    this._updateColorFromEvent(e.touches[0]);
+                }
+            };
+            
+            document.ontouchend = (e) => {
+                this._isDragging = false;
+                this._preventUIUpdate = false;
+                this._updateEntityValue();
+                
+                // Clean up temporary handlers
+                document.ontouchmove = null;
+                document.ontouchend = null;
+            };
+        };
     }
     
     _removeEventListeners() {
         const colorWheel = this.content.querySelector('#colorWheel');
         if (colorWheel) {
-            colorWheel.removeEventListener('mousedown', this._boundOnMouseDown);
-            colorWheel.removeEventListener('touchstart', this._boundOnTouchStart);
+            colorWheel.onmousedown = null;
+            colorWheel.ontouchstart = null;
         }
         
-        document.removeEventListener('mousemove', this._boundOnMouseMove);
-        document.removeEventListener('mouseup', this._boundOnMouseUp);
-        document.removeEventListener('touchmove', this._boundOnTouchMove);
-        document.removeEventListener('touchend', this._boundOnTouchEnd);
+        // Clean up any lingering document handlers
+        document.onmousemove = null;
+        document.onmouseup = null;
+        document.ontouchmove = null;
+        document.ontouchend = null;
     }
 
     _onMouseDown(event) {
+        event.preventDefault(); // Prevent default to ensure drag works on first click
         this._isDragging = true;
+        this._preventUIUpdate = true;
+        this._lastClientX = event.clientX;
+        this._lastClientY = event.clientY;
         this._updateColorFromEvent(event);
     }
 
     _onMouseMove(event) {
         if (this._isDragging) {
-            this._updateColorFromEvent(event);
+            // Only update if the mouse has actually moved
+            if (event.clientX !== this._lastClientX || event.clientY !== this._lastClientY) {
+                this._lastClientX = event.clientX;
+                this._lastClientY = event.clientY;
+                this._updateColorFromEvent(event);
+            }
         }
     }
 
-    _onMouseUp() {
-        this._isDragging = false;
-        // Update entity value when mouse is released
-        this._updateEntityValue();
+    _onMouseUp(event) {
+        if (this._isDragging) {
+            this._isDragging = false;
+            this._preventUIUpdate = false;
+            // Update entity value when mouse is released
+            this._updateEntityValue();
+        }
     }
 
     _onTouchStart(event) {
         event.preventDefault();
         this._isDragging = true;
-        this._updateColorFromEvent(event.touches[0]);
+        this._preventUIUpdate = true;
+        const touch = event.touches[0];
+        this._lastClientX = touch.clientX;
+        this._lastClientY = touch.clientY;
+        this._updateColorFromEvent(touch);
     }
 
     _onTouchMove(event) {
         if (this._isDragging) {
             event.preventDefault();
-            this._updateColorFromEvent(event.touches[0]);
+            const touch = event.touches[0];
+            // Only update if the touch has actually moved
+            if (touch.clientX !== this._lastClientX || touch.clientY !== this._lastClientY) {
+                this._lastClientX = touch.clientX;
+                this._lastClientY = touch.clientY;
+                this._updateColorFromEvent(touch);
+            }
         }
     }
 
-    _onTouchEnd() {
-        this._isDragging = false;
-        // Update entity value when touch ends
-        this._updateEntityValue();
+    _onTouchEnd(event) {
+        if (this._isDragging) {
+            this._isDragging = false;
+            this._preventUIUpdate = false;
+            // Update entity value when touch ends
+            this._updateEntityValue();
+        }
     }
 
     _updateColorFromEvent(event) {
